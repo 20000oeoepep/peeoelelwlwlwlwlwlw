@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>أنمي باور | Anime Power</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #229ED9;
+            --bg-dark: #0a0b10;
+            --glass: rgba(255, 255, 255, 0.05);
+            --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+        }
+
+        body { margin: 0; background: var(--bg-dark); color: #fff; font-family: 'Cairo', sans-serif; overflow: hidden; }
+        #bg-canvas { position: fixed; top: 0; left: 0; z-index: 1; }
+
+        /* شاشة الدخول */
+        #login-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 100;
+            background: radial-gradient(circle at center, #1a1c25 0%, #000 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: 0.5s;
+        }
+        
+        .login-card {
+            background: var(--glass); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1);
+            padding: 30px; border-radius: 20px; box-shadow: var(--shadow); width: 320px; text-align: center;
+        }
+
+        .taka-input, .taka-select {
+            background: rgba(0,0,0,0.5); border: 1px solid var(--primary);
+            color: white; padding: 12px; width: 100%; border-radius: 10px; margin: 10px 0;
+            font-family: 'Cairo'; font-size: 14px; outline: none; transition: 0.3s; box-sizing: border-box;
+        }
+        .taka-input:focus { border-color: #fff; box-shadow: 0 0 10px var(--primary); }
+        
+        .taka-btn {
+            background: var(--primary); color: #000; border: none; padding: 12px; width: 100%;
+            font-weight: bold; cursor: pointer; border-radius: 10px; font-size: 16px;
+            margin-top: 10px; font-family: 'Cairo'; transition: 0.3s;
+        }
+        .taka-btn:hover { background: #fff; transform: translateY(-2px); box-shadow: 0 5px 15px var(--primary); }
+        .admin-link { font-size: 12px; color: #666; cursor: pointer; margin-top: 15px; display: block; text-decoration: underline; }
+
+        /* شاشة الشات */
+        #chat-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 50;
+            display: none; flex-direction: column; background: rgba(0,0,0,0.3);
+        }
+
+        .header {
+            padding: 15px 20px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(34, 158, 217, 0.3); display: flex; justify-content: space-between; align-items: center;
+        }
+        
+        #messages-list { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; scroll-behavior: smooth; }
+
+        /* ستايل الرسائل */
+        .msg {
+            max-width: 85%; padding: 12px 18px; border-radius: 15px; position: relative;
+            animation: fadeIn 0.3s ease; line-height: 1.6; border: 1px solid rgba(255,255,255,0.05);
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .msg.mine { align-self: flex-start; background: linear-gradient(135deg, #229ED9, #166d96); color: white; border-bottom-right-radius: 2px; }
+        .msg.theirs { align-self: flex-end; background: rgba(40,40,40,0.8); border-bottom-left-radius: 2px; }
+        
+        .msg-info { font-size: 11px; margin-bottom: 5px; display: flex; gap: 8px; align-items: center; }
+        .badge { padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: bold; background: rgba(255,255,255,0.2); }
+        .badge.admin { background: #ff4757; color: #fff; }
+        .badge.team { background: #2f3542; color: var(--primary); border: 1px solid var(--primary); }
+
+        .admin-tools { margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 5px; display: flex; gap: 10px; }
+        .del-btn { color: #ff4757; font-size: 11px; cursor: pointer; }
+
+        .input-area { padding: 20px; background: rgba(0,0,0,0.8); display: flex; gap: 10px; backdrop-filter: blur(10px); }
+
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4757; display: inline-block; margin-left: 5px; }
+        .status-dot.online { background: #2ed573; box-shadow: 0 0 10px #2ed573; }
+
+    </style>
+</head>
+<body>
+
+    <div id="bg-canvas"></div>
+
+    <div id="login-screen">
+        <div class="login-card">
+            <h2 style="color:var(--primary); margin-bottom:5px;">أنمي باور</h2>
+            <p style="color:#aaa; font-size:13px; margin-bottom:20px;">مرحباً بك في ديسكورد أنمي باور</p>
+            
+            <input type="text" id="username" class="taka-input" placeholder="اسمك المستعار">
+            
+            <select id="team-select" class="taka-select">
+                <option value="التاكا">فرقة التاكا</option>
+                <option value="ستورم">فرقة ستورم</option>
+                <option value="الغيلان">فرقة الغيلان</option>
+                <option value="الاستطلاع">فرقة الاستطلاع</option>
+                <option value="ريودان">فرقة ريودان</option>
+                <option value="كورسيد">فرقة كورسيد</option>
+                <option value="أخرى">فرقة أخرى</option>
+            </select>
+            
+            <button class="taka-btn" onclick="connectToAnimePower()">دخول القناة</button>
+            <span class="admin-link" onclick="checkAdmin()">تسجيل دخول الأشراف</span>
+        </div>
+    </div>
+
+    <div id="chat-screen">
+        <div class="header">
+            <div>
+                <b style="color:var(--primary); font-size:18px;">ديسكورد أنمي باور</b>
+                <div style="font-size:11px; color:#888" id="user-info-display">جاري التحميل...</div>
+            </div>
+            <div style="font-size: 12px;">
+                <span id="status-dot" class="status-dot"></span>
+                <span id="status-text">أوفلاين</span>
+            </div>
+        </div>
+
+        <div id="messages-list"></div>
+
+        <div class="input-area">
+            <input type="text" id="msg-input" class="taka-input" style="margin:0;" placeholder="اكتب رسالتك هنا..." onkeypress="if(event.key==='Enter') sendMsg()">
+            <button class="taka-btn" style="width:70px; margin:0;" onclick="sendMsg()">إرسال</button>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. الإعدادات والمتغيرات
+        // ==========================================
+        const BROKER = "broker.emqx.io";
+        const PORT = 8084;
+        const CLIENT_ID = "ap_" + Math.random().toString(16).substr(2, 8);
+        const ADMIN_PASS = "123456pooqos5#09wowbo";
+        const ROOM = "anime_power_main_v1";
+
+        let client;
+        let userData = {
+            name: localStorage.getItem('ap_name') || "",
+            team: localStorage.getItem('ap_team') || "التاكا",
+            isAdmin: localStorage.getItem('ap_isAdmin') === 'true'
+        };
+        let isConnected = false;
+        let localHistory = [];
+
+        // تعبئة البيانات إذا كانت موجودة
+        if(userData.name) {
+            document.getElementById('username').value = userData.name;
+            document.getElementById('team-select').value = userData.team;
+        }
+
+        // ==========================================
+        // 2. منطق الإشراف والدخول
+        // ==========================================
+        function checkAdmin() {
+            const pass = prompt("أدخل كلمة سر الأشراف:");
+            if(pass === ADMIN_PASS) {
+                userData.isAdmin = true;
+                localStorage.setItem('ap_isAdmin', 'true');
+                alert("تم تفعيل صلاحيات المسؤول بنجاح 🛡️");
+            } else {
+                alert("كلمة السر خاطئة!");
+            }
+        }
+
+        function connectToAnimePower() {
+            const name = document.getElementById('username').value.trim();
+            const team = document.getElementById('team-select').value;
+            
+            if(!name) return alert("يرجى إدخال اسمك!");
+
+            userData.name = name;
+            userData.team = team;
+            
+            // حفظ البيانات
+            localStorage.setItem('ap_name', name);
+            localStorage.setItem('ap_team', team);
+
+            document.getElementById('login-screen').style.opacity = '0';
+            setTimeout(() => {
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('chat-screen').style.display = 'flex';
+                document.getElementById('user-info-display').innerText = `${userData.name} | فرقة ${userData.team} ${userData.isAdmin ? '(مسؤول)' : ''}`;
+            }, 500);
+
+            startMQTT();
+        }
+
+        // ==========================================
+        // 3. محرك الرسائل (MQTT)
+        // ==========================================
+        function startMQTT() {
+            client = new Paho.MQTT.Client(BROKER, PORT, CLIENT_ID);
+            client.onConnectionLost = (e) => { setStatus(false); };
+            client.onMessageArrived = onMessageArrived;
+
+            client.connect({
+                useSSL: true,
+                onSuccess: () => {
+                    setStatus(true);
+                    isConnected = true;
+                    client.subscribe(ROOM);
+                    // إرسال رسالة الانضمام
+                    publishData("JOIN", { name: userData.name, team: userData.team });
+                    publishData("SYNC_REQ", {});
+                }
+            });
+        }
+
+        function sendMsg() {
+            const inp = document.getElementById('msg-input');
+            if(!inp.value.trim() || !isConnected) return;
+
+            const msg = {
+                id: Date.now() + Math.random(),
+                user: userData.name,
+                team: userData.team,
+                text: inp.value.trim(),
+                isAdmin: userData.isAdmin,
+                time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+            };
+
+            publishData("MSG", msg);
+            inp.value = "";
+        }
+
+        function publishData(type, content) {
+            const payload = JSON.stringify({ type, data: content, sender: CLIENT_ID });
+            const message = new Paho.MQTT.Message(payload);
+            message.destinationName = ROOM;
+            client.send(message);
+        }
+
+        function onMessageArrived(message) {
+            const packet = JSON.parse(message.payloadString);
+            const isMe = packet.sender === CLIENT_ID;
+
+            if(packet.type === "MSG") {
+                displayMessage(packet.data, isMe);
+                saveHistory(packet.data);
+            } else if(packet.type === "JOIN" && !isMe) {
+                addSystemMsg(`تم الانضمام: ${packet.data.name} - فرقة ${packet.data.team}`);
+            } else if(packet.type === "DELETE" && userData.isAdmin) {
+                // منطق حذف الرسالة من الواجهة (بسيط)
+                const element = document.getElementById(packet.data.msgId);
+                if(element) element.remove();
+            }
+            // منطق المزامنة المبسط
+            else if(packet.type === "SYNC_REQ" && !isMe && localHistory.length > 0) {
+                setTimeout(() => publishData("SYNC_RES", localHistory), 1000);
+            }
+            else if(packet.type === "SYNC_RES" && !isMe && localHistory.length === 0) {
+                packet.data.forEach(m => {
+                    if(!localHistory.find(x => x.id === m.id)) {
+                        displayMessage(m, false);
+                        saveHistory(m);
+                    }
+                });
+            }
+        }
+
+        // ==========================================
+        // 4. الواجهة الرسومية
+        // ==========================================
+        function displayMessage(msg, isMine) {
+            if(document.getElementById(msg.id)) return;
+
+            const list = document.getElementById('messages-list');
+            const div = document.createElement('div');
+            div.className = `msg ${isMine ? 'mine' : 'theirs'}`;
+            div.id = msg.id;
+            
+            div.innerHTML = `
+                <div class="msg-info">
+                    <span style="font-weight:bold">${msg.user}</span>
+                    <span class="badge team">${msg.team}</span>
+                    ${msg.isAdmin ? '<span class="badge admin">مسؤول</span>' : ''}
+                    <span style="opacity:0.5">${msg.time}</span>
+                </div>
+                <div>${msg.text}</div>
+                ${userData.isAdmin ? `
+                    <div class="admin-tools">
+                        <span class="del-btn" onclick="deleteRemote('${msg.id}')">حذف الرسالة</span>
+                    </div>
+                ` : ''}
+            `;
+            
+            list.appendChild(div);
+            list.scrollTop = list.scrollHeight;
+        }
+
+        function deleteRemote(id) {
+            if(confirm("هل تريد حذف هذه الرسالة للجميع؟")) {
+                publishData("DELETE", { msgId: id });
+                const el = document.getElementById(id);
+                if(el) el.remove();
+            }
+        }
+
+        function addSystemMsg(txt) {
+            const list = document.getElementById('messages-list');
+            const div = document.createElement('div');
+            div.style = "text-align:center; font-size:11px; color:var(--primary); opacity:0.7; margin:10px 0";
+            div.innerText = "✨ " + txt;
+            list.appendChild(div);
+            list.scrollTop = list.scrollHeight;
+        }
+
+        function setStatus(online) {
+            const dot = document.getElementById('status-dot');
+            const txt = document.getElementById('status-text');
+            dot.className = online ? "status-dot online" : "status-dot";
+            txt.innerText = online ? "متصل بالشبكة" : "جاري الاتصال...";
+        }
+
+        function saveHistory(msg) {
+            localHistory.push(msg);
+            if(localHistory.length > 30) localHistory.shift();
+        }
+
+        // ==========================================
+        // 5. الخلفية الأنيميشن (Three.js)
+        // ==========================================
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('bg-canvas').appendChild(renderer.domElement);
+
+        const particlesGeometry = new THREE.BufferGeometry();
+        const count = 100;
+        const positions = new Float32Array(count * 3);
+        for(let i=0; i<count*3; i++) positions[i] = (Math.random() - 0.5) * 100;
+        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        const material = new THREE.PointsMaterial({ color: 0x229ED9, size: 0.5, transparent: true, opacity: 0.5 });
+        const points = new THREE.Points(particlesGeometry, material);
+        scene.add(points);
+
+        camera.position.z = 50;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            points.rotation.y += 0.001;
+            points.rotation.x += 0.0005;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
